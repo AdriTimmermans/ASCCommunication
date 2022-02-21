@@ -1,0 +1,337 @@
+//************************************************************
+//
+// This module handles all Serial communication between the 
+// main-computer and the radio-module of any equipment using serial interface
+//
+// and
+//
+// communication over the WIFI network
+// 
+// This module and pinout is based on the Lolin WEMOS D1 mini Pro
+//
+//************************************************************
+#include "namedMesh.h"
+#include<SPI.h>
+#include<ASCCommunicationDefinition.h>
+#include <EEPROM.h>
+
+#define TX 1
+#define RX 3
+#define D1 5  // semafoor pin
+#define D2 4  // receiveSlaveInterrupt pin
+#define D3 0
+#define D0 16
+#define D5 14 // SPI Clock
+#define D6 12 // SPI MISO
+#define D7 13 // SPI MOSI
+#define D8 15 // SPI SS or CS
+
+#define SPIChipSelectPin          D8
+#define receiveSlaveInterruptPin  D2
+#define semafoorPin               D1
+
+String straddleName      = equipmentNameList[1].substring(0, 4); 
+String pointZeroName     = equipmentNameList[11].substring(0, 4);
+String groundStationName = equipmentNameList[0].substring(0, 4);
+String turtleName        = equipmentNameList[5].substring(0, 4);
+String artgName          = equipmentNameList[9].substring(0, 4);
+String agvName           = equipmentNameList[3].substring(0, 4);
+String ttName            = equipmentNameList[7].substring(0, 4);
+String msgSender;
+String msgAddressee;
+
+long            lastHeartbeatAt = 0;
+String			allowedSender;
+#define         meshSSId       "AutoStraddleModel"
+#define         meshPassword   "TBA01012012"
+#define         meshPort       5789
+
+Scheduler     userScheduler; // to control your personal task
+namedMesh  mesh;
+
+// eeprom 0 = this equipment ID (See ASCCommunicationDefinition.h
+// eeprom 1 - 50 = ID of equipment that will receive a heartbeat signal
+// eeprom 51 = if value = 0; message received from all senders are valid, else
+// eeprom 52 = value of list of valid senders (for now only one)
+
+Task taskSendMessage( TASK_SECOND * 15, TASK_FOREVER, []()
+{
+  for (int i=0; i<(maxEquipmentNumber - 3)/2;i++)
+  {
+	if (EEPROM.read(i+1) == 1)
+	{
+		String to = equipmentNameList[i].substring(0, 4)
+		String msg = String("Heartbeat ") + thisCHEString + String("->") + to;
+		_SERIAL_PRINTLN(msg);
+		mesh.sendSingle(to, msg);
+	}
+  }
+ 
+}); // start with a 15 second interval
+
+volatile bool radioIsActive = false;
+byte radioStatusMessage[4] = {radioOff, 0, 0, 0};
+
+aMessage WIFIMessage;
+
+aMessage mS_sendMessage;
+aMessage mR_receiveMessage;
+
+byte rawContent[maxSerialBufferLength];
+
+messageTypeIds  WIFIMessageTypeId = noMessageActive;
+
+void nodeTimeAdjustedCallback(int32_t offset)
+{
+  /*
+    _SERIAL_PRINT("ad. ");
+    _SERIAL_PRINT(mesh.getNodeTime());
+    _SERIAL_PRINT(" - ");
+    _SERIAL_PRINTLN(offset);
+  */
+}
+
+void setup()
+{
+  waitFor(2500);
+  Serial.begin(74880);
+	if (EEPROM.read(51) == 0)
+	{
+		allowedSender = "*";
+	}
+	else
+	{
+		allowedSender = equipmentNameList[52].substring(0, 4);
+	}
+	thisCHEID = EEPROM.read(0);
+	thisCHEString = equipmentNameList[thisCHEID].substring(0, 4);
+	_SERIAL_PRINTLN("==========================");
+	_SERIAL_PRINTLN("    ");
+	_SERIAL_PRINTLN(thisCHEString);
+	_SERIAL_PRINTLN(" RADIO MODULE    ");
+	_SERIAL_PRINTLN("==========================");
+
+	SPI.begin();
+	pinMode(receiveSlaveInterruptPin, INPUT);
+	digitalWrite(SPIChipSelectPin, LOW);
+	attachInterrupt(digitalPinToInterrupt(receiveSlaveInterruptPin), setDataOnSPIFlag, FALLING);
+
+	pinMode(semafoorPin, INPUT);
+	semafoor = semafoorPin;
+
+	setSPIBusStatus(SPIinActive);
+	dataOnSPI = false;
+
+	memset(rawContent, 0, sizeof(rawContent));
+	rawContent[0] = radioOff;
+
+#ifdef DEBUG_PRINT
+	mesh.setDebugMsgTypes(ERROR);  // set before init() so that you can see startup messages
+  //mesh.setDebugMsgTypes(ERROR | DEBUG | CONNECTION | STARTUP);  // set before init() so that you can see startup messages
+#endif
+
+	mesh.init(meshSSId, meshPassword, &userScheduler, meshPort);
+	mesh.setName(groundStationName); // This needs to be an unique name!
+	mesh.onReceive([] (uint32_t from, String & msg )
+	{
+		_SERIAL_PRINT(thisCHEString);
+		_SERIAL_PRINT(" received following message: ");
+		_SERIAL_PRINTLN(msg);
+		if (strncmp(&msg[0], "Heartbeat", 9) == 0)
+		{
+			_SERIAL_PRINTLN("'heartbeat' found");
+			rawContent[0] = radioOn;
+			if (!radioIsActive)
+			{
+				if (!((thisCHEID == 11)||(thisCHEID == 12)))   // Zero does not have a main module
+				{
+					mS_sendMessage = prepareSerialMessage (equipmentNameList[thisCHEID+13], equipmentNameList[thisCHEID], equipmentNameList[thisCHEID], radioStatusReply, 1,  &rawContent[0]);
+					mR_receiveMessage = sendMessageSPIFromMaster(SPIChipSelectPin, mS_sendMessage);
+				}
+			}
+			radioIsActive = true;
+			lastHeartbeatAt = millis();
+		}
+		else
+		{
+		_SERIAL_PRINTLN(": Radio message found");
+		WIFIMessage = receiveWIFIUnsolicitedData(&msg, thisCHEString, allowedSender);
+		WIFIMessageTypeId = (messageTypeIds)WIFIMessage.messageTypeId;
+		}
+	});
+	
+	mesh.onChangedConnections([]()
+	{
+		//_SERIAL_PRINTLN("Connection change");
+	});
+	mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
+
+	userScheduler.addTask(taskSendMessage);
+	taskSendMessage.enable();
+	WIFIMessageTypeId = noMessageActive;
+	lastHeartbeatAt = -61000;
+}
+
+void sendWIFIMessage (String __messageTarget, aMessage __WIFIMessage)
+{
+
+	String auxValue;
+	String auxString;
+	int indexContent = 0;
+
+	auxString = "";
+
+	for (int i = 0; i < 3; i++)
+	{
+		auxValue = String("000") + String(__WIFIMessage.startOfMessage[i]);
+		auxString += auxValue.substring(auxValue.length() - 3);
+	}
+
+	auxValue = String("000") + String(__WIFIMessage.totalMessageLength);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	auxValue = String("000") + String(__WIFIMessage.totalContentItems);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	auxValue = String("000") + String(__WIFIMessage.messageNumberHighByte);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	auxValue = String("000") + String(__WIFIMessage.messageNumberLowByte);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	auxValue = String("000") + String(__WIFIMessage.CRCByte);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	auxValue = String("000") + String(__WIFIMessage.mediumId);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	auxValue = String("000") + String(__WIFIMessage.senderId);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	auxValue = String("000") + String(__WIFIMessage.addresseeId);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	auxValue = String("000") + String(__WIFIMessage.finalAddressId);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	auxValue = String("000") + String(__WIFIMessage.messageTypeId);
+	auxString += auxValue.substring(auxValue.length() - 3);
+	for (int i = 0; i < __WIFIMessage.totalContentItems + 1; i++)
+	{
+		auxValue = String("000") + String(__WIFIMessage.content[indexContent]);
+		auxString += auxValue.substring(auxValue.length() - 3);
+		auxValue = String("000") + String(__WIFIMessage.content[indexContent + 1]);
+		auxString += auxValue.substring(auxValue.length() - 3);
+		auxValue = String("000") + String(__WIFIMessage.content[indexContent + 2]);
+		auxString += auxValue.substring(auxValue.length() - 3);
+		indexContent = indexContent + 3;
+	}
+
+	auxString += "\n";
+
+	String to = __messageTarget;
+	mesh.sendSingle(to, auxString);
+}
+
+void handleSerialMessageOnRadioModuleGeneral(int SPIChipSelectPin, aMessage * mA_Message)
+{
+	String msgSender = toDef(mA_Message->senderId).substring(0, 4);
+	String msgAddressee = toDef(mA_Message->finalAddressId).substring(0, 4);
+
+	switch ((messageTypeIds)mR_receiveMessage.messageTypeId)
+    {
+        case radioStatusRequest:
+			mS_sendMessage = prepareSerialMessage (msgSender + "R", msgSender + "M", msgSender + "M", radioStatusReply, 1,  rawContent);
+			mR_receiveMessage = sendMessageSPIFromMaster(SPIChipSelectPin, mS_sendMessage);
+			mR_receiveMessage.messageTypeId = 0; // noMessageActive
+			break;
+        case vehicleStateList:
+			WIFIMessage = prepareWIFIMessage (msgSender + "R", msgAddressee + "R", msgAddressee + "M", vehicleStateList, mR_receiveMessage.totalContentItems,  mR_receiveMessage.content);
+			sendWIFIMessage (msgAddressee, WIFIMessage) ; // the list of vehicle commands (minimum = 1 command)
+			mR_receiveMessage.messageTypeId = 0; // noMessageActive
+			break;
+        case vehicleCommandList:
+			WIFIMessage = prepareWIFIMessage (msgSender + "R", msgAddressee + "R", msgAddressee + "M", vehicleCommandList, mR_receiveMessage.totalContentItems,  mR_receiveMessage.content);
+			sendWIFIMessage (msgAddressee, WIFIMessage) ; // the list of vehicle commands (min = 1 command)
+			mR_receiveMessage.messageTypeId = 0; // noMessageActive
+			break;
+        case locationRequest:
+			WIFIMessage = prepareWIFIMessage (msgSender + "R", msgAddressee + "R", msgAddressee + "M", locationRequest, mR_receiveMessage.totalContentItems,  mR_receiveMessage.content);
+			sendWIFIMessage (msgAddressee, WIFIMessage) ;
+			mR_receiveMessage.messageTypeId = 0; // noMessageActive
+			break;
+        case messageStatusReply:
+			mR_receiveMessage.messageTypeId = 0; // noMessageActive
+			break;
+        default:
+			_SERIAL_PRINT("No valid function for this Mesh: ");
+			_SERIAL_PRINTLN(mR_receiveMessage.messageTypeId);
+			break;
+    }
+
+}
+
+void handleWIFIMessageOnRadioModuleGeneral(int SPIChipSelectPin, aMessage * mA_Message)
+{
+	if ((messageTypeIds)WIFIMessage->messageTypeId != messageStatusReply)
+	{
+		//
+		// create Serial message before overwriting the WIFI message data to perform an ack
+		//		
+		mS_sendMessage = prepareSerialMessage (thisCHEString + "R", thisCHEString + "M", thisCHEString + "M", (messageTypeIds)WIFIMessage->messageTypeId, WIFIMessage->totalContentItems,  WIFIMessage->content[0]);
+		mR_receiveMessage = sendMessageSPIFromMaster(SPIChipSelectPin, mS_sendMessage);
+		//
+		// handle message from network
+		//
+
+            //
+            // create WIFI ack message
+            //
+            WIFIMessage.content[0] = messageUnderstood;
+            WIFIMessage.content[1] = 0;
+            WIFIMessage.content[2] = 0;
+            WIFIMessage = prepareWIFIMessage (groundStationName + "R", msgSender + "R", msgSender + "R", messageStatusReply, 1,  WIFIMessage.content);
+            displayMessage(&WIFIMessage, false);
+            //
+            // send message via radio
+            //
+            sendWIFIMessage (msgSender + "R", WIFIMessage) ; // the ack
+            _SERIAL_PRINTLN("WIFI messageStatusReply sent");
+          }
+		
+	}
+}
+void loop() {
+
+  mesh.update();
+
+  if (radioIsActive)
+  {
+	if (!((thisCHEID == 11)||(thisCHEID == 12)))
+	{
+		if ((millis() - lastHeartbeatAt) > 60000)
+		{
+			radioIsActive = false;
+			_SERIAL_PRINTLN("Heartbeat dropped after one minute");
+			rawContent[0] = radioOff;
+			mS_sendMessage = prepareSerialMessage (thisCHEString + "R", thisCHEString + "M", thisCHEString + "M", radioStatusReply, 1,  rawContent);
+			mR_receiveMessage = sendMessageSPIFromMaster(SPIChipSelectPin, mS_sendMessage);
+		}
+	}
+  }
+
+  if (radioIsActive)
+  {
+
+    //
+    // handle message from main computer
+    //
+
+    if (dataOnSPI)
+    {
+		mR_receiveMessage = receiveSPIMessageOnMaster(SPIChipSelectPin);
+		handleSerialMessageOnRadioModuleGeneral(SPIChipSelectPin, &mR_receiveMessage);
+		dataOnSPI = false;
+    }
+	//
+	// handle message from WIFI network
+	//
+	
+    if (WIFIMessageTypeId != noMessageActive)
+    {
+		handleWIFIMessageOnRadioModuleGeneral(SPIChipSelectPin, &WIFIMessage);
+		WIFIMessageTypeId = noMessageActive;
+    }
+  }
+}

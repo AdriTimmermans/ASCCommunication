@@ -1,0 +1,114 @@
+	showMatrixBoardData=36,
+	dumpLoglineData=37,
+	
+	matrixBoardAction=15,
+	loggerAction=16
+	
+	https://github.com/AdriTimmermans/SPI-ASC-Test.git
+	
+xx	requestToLiftSpreader         =30,  // command sent to slave to trigger lifting the spreader
+xx	requestToDropSpreader         =31,  // command sent to slave to trigger dropping the spreader
+xx	requestDisplayLines           =32,  // command sent to slave to get display lines
+xx	requestInterruptType          =33,  // command sent to slave to inform after type of interrupt
+xx	requestSpreaderHeight         =34,  // command sent to slave to inform after the spreader height;
+x-	requestSlaveReady             = 35  // command sent to slave to inform after the readyness of the slave (is it out of setup?);
+xx	requestLogline                =36,  // command sent to slave to inform that a logline is coming
+xx	requestResetSlave             =38,  // command sent to slave to execute a reset after the start
+xx	informSlaveToStart            =39,  // command sent to slave to inform slave of master being ready for slave to start
+--	heartBeat                     =40,  // master still active
+xx	informToReceiveDashboardInfo  =41,  // command to inform slave that dashboard info is coming
+-x	requestWheelPulsesCount       =42,  // request to motor mcu to update number of wheel pulses
+-x	informMotorOrder              =43,  // command with motor order info
+-x	requestDisplayMotorData       =44,  // request for motor data to display
+-x	informExecuteMotorOrder       =45,  // command to execute the motor order
+xx  logLineInterrupt              =94,
+x-	noMessage 					  =95,	
+xx	obstacleInterrupt 			  =97,	
+xx 	displayLineInterrupt 		  =96,
+x-	slaveBusy 					  =98,
+xx	slaveReady 					  =99
+
+14:25:00.314 -> ***** Send from within SendAndReceiveSPIMessage
+14:25:00.314 -> bytes passed = 32
+14:25:00.386 -> dataOnSPI = TRUE
+14:25:00.458 -> Message has 32 bytes
+14:25:00.458 ->  0x20 0x01 0x59 0x00 0x1D 0x75 0x54 0x58 0x52 0x58 0x53 0x52 0x20 0x20 0x52 0x53 0x52 0x20 0x20 0x4D 0x53 0x52 0x20 0x20 0x4D 0x02 0x1B 0x00 0x00 0xEF
+14:25:00.458 ->  0xF0 0xF1
+14:25:00.458 -> Reply message from Slave / or timeout message
+
+sprintf(lfn, "run : %i at: %s -- %s",runNumber, RTC.getDateStr(), RTC.getTimeStr());
+  sprintf(logLineBuffer, "ASC Main, run %i, date: %02i-%02X%02X%03X", runNumber, equipmentOrderModePart, EOPar1, EOPar2, routeListPosition);
+  writeLogLineOnFile(logLineBuffer);
+
+============
+
+aMessage waitForStatusMessage (SPIApplicationType SPIType, int CSorWakeUp, byte messageNumberHighByte, byte messageNumberLowByte)
+{
+	aMessage 		aux;
+	aMessage 		returnMessage;
+	long 			startTimeTransaction;
+	messageTypeIds 	receivedAnswer = noMessageActive;
+	bool 			sentSuccess;
+
+	if (SPIType == IamSPIMaster)
+	{ 
+		startTimeTransaction = millis();
+		while (((millis()-startTimeTransaction)<5000) && (!dataOnSPI))
+		{
+			delay(5);
+		}
+		
+		if (dataOnSPI)
+		{
+			aux = SPIReadMessageFromSlave(CSorWakeUp);
+			receivedAnswer = (messageTypeIds)aux.messageTypeId;
+			switch (receivedAnswer)
+			{
+				case messageStatusReply:
+					break;
+				default:
+					returnMessage = createGeneralMessage (messageStatusReply, messageUnknown, messageOutOfSequence);
+					sentSuccess = sendSPIMessageOneWay(SPIType, CSorWakeUp, returnMessage);
+					aux = createGeneralMessage (messageStatusReply, messageUnknown, messageOutOfSequence);
+					break;
+			}
+			dataOnSPI = false;
+		}
+		else
+		{
+			aux = createGeneralMessage (messageStatusReply, errorSerialCommunication, 1);
+		}
+	}
+	else
+	{
+		startTimeTransaction = millis();
+		hasData = false;			
+		memset(byteMessage, 0, sizeof(byteMessage));
+		while (((millis()-startTimeTransaction)<5000) && (!hasData)){};
+		
+		if (hasData)
+		{
+			memcpy(&aux, (byte *)byteMessage, sizeof(aux));
+			receivedAnswer = (messageTypeIds)aux.messageTypeId;
+			switch (receivedAnswer)
+			{
+				case messageStatusReply:
+					break;
+				default:
+					returnMessage = createGeneralMessage (messageStatusReply, messageUnknown, messageOutOfSequence);
+					sentSuccess = sendSPIMessageOneWay(SPIType, CSorWakeUp, returnMessage);
+					aux = createGeneralMessage (messageStatusReply, errorSerialCommunication, 3);
+					break;
+			}
+			hasData = false;
+			SPIBufferPosition = 0;
+		}
+		else
+		{ 
+			aux = createGeneralMessage (messageStatusReply, errorSerialCommunication, 4);
+		}
+	}
+
+	return aux;
+}
+================
