@@ -1,4 +1,4 @@
-//#define DEBUG_PRINT 1
+#define DEBUG_PRINT 1
 
 #ifdef DEBUG_PRINT
 	#define _SERIAL_BEGIN(x) Serial.begin(x);
@@ -287,10 +287,12 @@ void triggerInterrupt (int intPin)
   digitalWrite (intPin, LOW); //
   waitFor (2); // waitFor 2ms
   digitalWrite (intPin, HIGH); //
+/*
   _SERIAL_PRINT("Trigger on pin ");
   _SERIAL_PRINT(intPin);
   _SERIAL_PRINT(", push to master = ");
   _SERIAL_PRINTLN(pushToMaster);
+  */
 }
 
 void setSPIBusStatus (SPILineStates SPILineState)
@@ -328,43 +330,79 @@ SPILineStates getSPIBusStatus ()
 
 void displayMessage(aMessage * msg, bool outgoing)
 {
-
+	/*
+start:      241 240 239 
+length:     019 
+params:     001 
+messagnr:   000 045 
+CRC:        037 
+Medium:     027 
+Sender:     001 
+Receiver:   000 
+Endstation: 000 
+MsgTypeId:  011 
+Parameter1: 029 000 000 
+end:        239 240 241
+*/
 	if(outgoing)
 	{
-		_SERIAL_PRINT("-> OUTGOING:\t ");
+		_SERIAL_PRINTLN("-> OUTGOING:\t ");
 	}
 	else
 	{
-		_SERIAL_PRINT("<- INCOMING:\t ");
+		_SERIAL_PRINTLN("<- INCOMING:\t ");
 	}  
-	_SERIAL_PRINT("\t  ");
-	_SERIAL_PRINT(msgType[msg->messageTypeId]);
+	
+	_SERIAL_PRINT("start:      ");
 	for (int i = 0; i < 3; i++)
 	{
-		_SERIAL_PRINT_HEX(msg->startOfMessage[i]);
 		_SERIAL_PRINT("\t 0x");
+		_SERIAL_PRINT_HEX(msg->startOfMessage[i]);
 	}
+	_SERIAL_PRINTLN();
+	
+	_SERIAL_PRINT("length:     \t 0x");
 	_SERIAL_PRINT_HEX(msg->totalMessageLength);    //  Length of the message
-	_SERIAL_PRINT("\t 0x");  
+	_SERIAL_PRINT("\t ");
+	_SERIAL_PRINTLN(msg->totalMessageLength);
+
+	_SERIAL_PRINT("params:    \t 0x");
 	_SERIAL_PRINT_HEX(msg->totalContentItems);     //  Number of items to be added in the content of the message (3 bytes per item)
-	_SERIAL_PRINT("\t 0x");
+	_SERIAL_PRINT("\t ");
+	_SERIAL_PRINTLN_HEX(msg->totalContentItems);     //  Number of items to be added in the content of the message (3 bytes per item)
+	
+	_SERIAL_PRINT("messagenr:  \t 0x");
 	_SERIAL_PRINT_HEX(msg->messageNumberHighByte);         //  two byte integer to identify the message, in combination with the sender
 	_SERIAL_PRINT("\t 0x");
 	_SERIAL_PRINT_HEX(msg->messageNumberLowByte);         //  two byte integer to identify the message, in combination with the sender
-	_SERIAL_PRINT("\t 0x");
+	_SERIAL_PRINT("\t (");
+	long msgNr = (msg->messageNumberHighByte << 8) | msg->messageNumberLowByte;
+	_SERIAL_PRINT(msgNr);
+	_SERIAL_PRINTLN(")");
+	
+	_SERIAL_PRINT("CRC:        \t 0x");
 	_SERIAL_PRINT_HEX(msg->CRCByte);               //  Control byte. Least significant byte of sum of all bytes
 	_SERIAL_PRINT("\t ");
-	_SERIAL_PRINT(toDef(msg->mediumId));
-	_SERIAL_PRINT("\t ");
-	_SERIAL_PRINT(toDef(msg->senderId));
-	_SERIAL_PRINT("\t ");  
-	_SERIAL_PRINT(toDef(msg->addresseeId));
-	_SERIAL_PRINT("\t ");  
-	_SERIAL_PRINT(toDef(msg->finalAddressId));
-	_SERIAL_PRINT("\t  ");
-	_SERIAL_PRINT(msgType[msg->messageTypeId]);
+	_SERIAL_PRINTLN(msg->CRCByte);               //  Control byte. Least significant byte of sum of all bytes
+
+	_SERIAL_PRINT("medium:     \t ");
+	_SERIAL_PRINTLN(toDef(msg->mediumId));
+
+	_SERIAL_PRINT("sender:     \t ");	
+	_SERIAL_PRINTLN(toDef(msg->senderId));
+	
+	_SERIAL_PRINT("receiver:   \t ");
+	_SERIAL_PRINTLN(toDef(msg->addresseeId));
+
+	_SERIAL_PRINT("addressee:  \t ");
+	_SERIAL_PRINTLN(toDef(msg->finalAddressId));
+
+	_SERIAL_PRINT("msgTypeId:  \t ");
+	_SERIAL_PRINTLN(msgType[msg->messageTypeId]);
+
 	for (int i = 0; i < ((msg->totalContentItems + 1) * 3); i= i+3)
 	{
+		_SERIAL_PRINT("data:       ");
 		if (msg->content[i] > 42)
 		{
 			_SERIAL_PRINT("\t 0x");
@@ -372,15 +410,14 @@ void displayMessage(aMessage * msg, bool outgoing)
 		}
 		else
 		{
-			_SERIAL_PRINT("\t  ");
+			_SERIAL_PRINT("\t ");
 			_SERIAL_PRINT(msgCom[msg->content[i]]);
 		}
 		_SERIAL_PRINT("\t 0x");
 		_SERIAL_PRINT_HEX(msg->content[i+1]);
 		_SERIAL_PRINT("\t 0x");
-		_SERIAL_PRINT_HEX(msg->content[i+2]);
+		_SERIAL_PRINTLN_HEX(msg->content[i+2]);
 	}
-		_SERIAL_PRINTLN("");
 }
 
 aMessage createGeneralMessage (messageTypeIds msgType, messageCommands msgCmd, byte contentByte);
@@ -647,8 +684,8 @@ aMessage SPIMasterPassDataFromYouToMe (int CSPin, int allowedResponseTime)
 	int			maxTries 			= 250;
 	int			tryCount 			= 0;
 	
-	_SERIAL_PRINT("CS PIN = ");
-	_SERIAL_PRINTLN(CSPin);
+	//_SERIAL_PRINT("CS PIN = ");
+	//_SERIAL_PRINTLN(CSPin);
 	memset(stopSequence, 0, 3);
 	
 	for (int i=0;i<sizeof(byteMessage);i++)
@@ -657,11 +694,11 @@ aMessage SPIMasterPassDataFromYouToMe (int CSPin, int allowedResponseTime)
 	}
 	if (dataOnSPI)
 	{
-		_SERIAL_PRINTLN("SPI trigger already received");
+		//_SERIAL_PRINTLN("SPI trigger already received");
 	}
 	else
 	{
-		_SERIAL_PRINTLN("Wait for SPI trigger");
+		//_SERIAL_PRINTLN("Wait for SPI trigger");
 	}
 	startWaitTime = millis();
 	while ((!dataOnSPI)&&((millis()-startWaitTime)<allowedResponseTime)) 
@@ -671,14 +708,14 @@ aMessage SPIMasterPassDataFromYouToMe (int CSPin, int allowedResponseTime)
 	
 	if (dataOnSPI)
 	{
-		_SERIAL_PRINTLN("SPI trigger received");
+		//_SERIAL_PRINTLN("SPI trigger received");
 		digitalWrite (CSPin, LOW);
 		waitFor(communicationDelay);
 		SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
 		startByte = SPI.transfer (1);   // initiate transmission
 		tryCount++;
 		waitFor(communicationDelay);
-		_SERIAL_PRINTLN("SPI.transfer (1);");
+		//_SERIAL_PRINTLN("SPI.transfer (1);");
 		//first read bytes until start of message
 		while ( (startByte != 0xF1)                            &&
 				((millis()-startWaitTime)< allowedResponseTime)&&
@@ -687,12 +724,12 @@ aMessage SPIMasterPassDataFromYouToMe (int CSPin, int allowedResponseTime)
 			startByte = SPI.transfer (1) ;
 			tryCount++;
 			waitFor(communicationDelay);
-			_SERIAL_PRINT_HEX(startByte);
-			_SERIAL_PRINT(" ");
+			//_SERIAL_PRINT_HEX(startByte);
+			//_SERIAL_PRINT(" ");
 		}
 
 		byteMessage[2] = startByte;
-		_SERIAL_PRINTLN("Out of F1 Search");
+		//_SERIAL_PRINTLN("Out of F1 Search");
 		
 		while ( !((byteMessage[0] == 0xF1)&&(byteMessage[1] == 0xF0)&&(byteMessage[2] == 0xEF)) &&
 		         ((millis()-startWaitTime)<allowedResponseTime)                                 &&
@@ -703,13 +740,13 @@ aMessage SPIMasterPassDataFromYouToMe (int CSPin, int allowedResponseTime)
 			byteMessage[2] = SPI.transfer (2);
 			tryCount++;
 			waitFor(communicationDelay);
-			_SERIAL_PRINT_HEX(byteMessage[2]);
-			_SERIAL_PRINT(" ");
+			//_SERIAL_PRINT_HEX(byteMessage[2]);
+			//_SERIAL_PRINT(" ");
 		}
-		_SERIAL_PRINTLN("Out of F1 F0 EF Serach");
+		//_SERIAL_PRINTLN("Out of F1 F0 EF Serach");
 		if (!((byteMessage[0] == 0xF1)&&(byteMessage[1] == 0xF0)&&(byteMessage[2] == 0xEF)))
 		{
-			_SERIAL_PRINTLN("Startsearch failed");
+			//_SERIAL_PRINTLN("Startsearch failed");
 			aux = createGeneralMessage (messageStatusReply, errorSerialCommunication, 8);
 		}
 		else 
@@ -723,8 +760,8 @@ aMessage SPIMasterPassDataFromYouToMe (int CSPin, int allowedResponseTime)
 				stopSequence[0] = stopSequence[1];
 				stopSequence[1] = stopSequence[2];
 				byteMessage [posLocal] = SPI.transfer (posLocal+2); // was 0
-				_SERIAL_PRINT(" 0x");
-				_SERIAL_PRINT_HEX(byteMessage[posLocal]);
+				//_SERIAL_PRINT(" 0x");
+				//_SERIAL_PRINT_HEX(byteMessage[posLocal]);
 				waitFor(communicationDelay);
 				stopSequence[2] = byteMessage [posLocal];
 				if ((stopSequence[0] == 0xEF) && (stopSequence[1] == 0xF0) && (stopSequence[2] == 0xF1))
@@ -737,9 +774,9 @@ aMessage SPIMasterPassDataFromYouToMe (int CSPin, int allowedResponseTime)
 				}
 			}
 		}
-		_SERIAL_PRINTLN(" -- Message completed");
+		//_SERIAL_PRINTLN(" -- Message completed");
 		memcpy (&aux, (byte *)byteMessage, sizeof(aux));
-		displayMessage(&aux, false);
+		//displayMessage(&aux, false);
 		SPI.endTransaction();
 		digitalWrite (CSPin, HIGH);
 		waitFor(communicationDelay);  
@@ -761,13 +798,14 @@ bool SPISlavePassDataFromMeToYou (int wakeUpPin, aMessage SPIMessage)
 	long 	startTimeTransaction;
 	bool	otherSideIsReady;
 
-	_SERIAL_PRINTLN("SPISlavePassDataFromMeToYou with message: ");
-	displayMessage(&SPIMessage, true);
+	//_SERIAL_PRINTLN("SPISlavePassDataFromMeToYou with message: ");
+	//displayMessage(&SPIMessage, true);
 	memcpy((byte *)byteMessage, &SPIMessage, sizeof(byteMessage));
 	pushToMaster = true;
 	startTimeTransaction = millis();
 	triggerInterrupt (wakeUpPin);
 	while (((millis()-startTimeTransaction)<3000) && (pushToMaster)) {};
+	/*
 	_SERIAL_PRINT("SPISlavePassDataFromMeToYou:pushToMaster =>");	
 	if (pushToMaster)
 	{
@@ -777,9 +815,10 @@ bool SPISlavePassDataFromMeToYou (int wakeUpPin, aMessage SPIMessage)
 	{
 		_SERIAL_PRINTLN(" false, data retrieved");
 	}
+	*/
 	aux = !pushToMaster;
 	pushToMaster = false;
-	_SERIAL_PRINTLN("SPISlavePassDataFromMeToYou:force pushToMaster to false");	
+	//_SERIAL_PRINTLN("SPISlavePassDataFromMeToYou:force pushToMaster to false");	
 	
 	return aux;
 }
@@ -792,7 +831,7 @@ aMessage SPISlavePassDataFromYouToMe (int allowedTime)
 	long 		startTimeTransaction;
 	bool		waitOnData = true;
 
-	_SERIAL_PRINTLN("SPISlavePassDataFromYouToMe");
+	//_SERIAL_PRINTLN("SPISlavePassDataFromYouToMe");
 	startTimeTransaction = millis();
 	aux = createGeneralMessage (messageStatusReply, errorSerialCommunication, 8);
 	hasData = false;
@@ -828,9 +867,9 @@ aMessage sendMessageSPIFromMaster(int CSPin, aMessage SPIMessage)
 		comSucces = SPIMasterPassDataFromMeToYou (CSPin, SPIMessage);
 		if (comSucces)
 		{
-			_SERIAL_PRINTLN("Send was succesful");
+			//_SERIAL_PRINTLN("Send was succesful");
 			returnMessage = SPIMasterPassDataFromYouToMe (CSPin, 1000);
-			_SERIAL_PRINTLN(" Message status reply received from slave: ");
+			//_SERIAL_PRINTLN(" Message status reply received from slave: ");
 			displayMessage(&returnMessage, false);
 			dataOnSPI = false;
 			if (returnMessage.messageTypeId == messageStatusReply)
@@ -931,9 +970,9 @@ aMessage sendMessageSPIFromSlave(int wakeUp, aMessage SPIMessage)
 		comSucces = SPISlavePassDataFromMeToYou (wakeUp, SPIMessage);
 		if (comSucces)
 		{
-			_SERIAL_PRINTLN("Send was succesful");
+			//_SERIAL_PRINTLN("Send was succesful");
 			returnMessage = SPISlavePassDataFromYouToMe (1000);
-			_SERIAL_PRINTLN(" Message status reply received from master: ");
+			//_SERIAL_PRINTLN(" Message status reply received from master: ");
 			displayMessage(&returnMessage, false);
 			if (returnMessage.messageTypeId == messageStatusReply)
 			{
