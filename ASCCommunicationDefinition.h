@@ -193,8 +193,8 @@ enum messageDirection
 	sent,
 	received
 };
-//                        0  1  2   3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18
-byte responseTimes[19] = {0, 1, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0};
+//                        0  1  2  3  4  5  6  7  8   9 10 11 12 13 14 15 16 17 18
+byte responseTimes[19] = {0, 1, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0};
 //					   0	 1      2      3      4      5      6      7     8      9      10     11     12     13     14     15     16     17     18     19     20     21     22     23     24     25     26     27     28     29     30     31     32     33     34     35     36     37     38     39     40     41 
 String msgCom[42] = {"noc","sts", "gos", "gol", "gor", "stt", "stb", "777", "888", "rqp", "sto", "exe", "122", "133", "144", "155", "166", "lsp", "uls", "sfd", "sbd", "stm", "smm", "rrp", "slg", "sof", "crs", "ron", "rof", "mus", "muk", "mos", "esc", "mto", "orf", "onf", "sfo", "rbu", "mdr", "smd", "dll", "tmd"};
 enum messageCommands {
@@ -386,20 +386,35 @@ end:        239 240 241
 	_SERIAL_PRINTLN(msg->CRCByte);               //  Control byte. Least significant byte of sum of all bytes
 
 	_SERIAL_PRINT("medium:     \t ");
-	_SERIAL_PRINTLN(toDef(msg->mediumId));
-
-	_SERIAL_PRINT("sender:     \t ");	
-	_SERIAL_PRINTLN(toDef(msg->senderId));
+	_SERIAL_PRINT(toDef(msg->mediumId));
+	_SERIAL_PRINT("\t (");
+	_SERIAL_PRINT(msg->mediumId);
+	_SERIAL_PRINTLN(")");
 	
+	_SERIAL_PRINT("sender:     \t ");	
+	_SERIAL_PRINT(toDef(msg->senderId));
+	_SERIAL_PRINT("\t (");	
+	_SERIAL_PRINT(msg->senderId);	
+	_SERIAL_PRINTLN(")");
+
 	_SERIAL_PRINT("receiver:   \t ");
-	_SERIAL_PRINTLN(toDef(msg->addresseeId));
+	_SERIAL_PRINT(toDef(msg->addresseeId));
+	_SERIAL_PRINT("\t (");	
+	_SERIAL_PRINT(msg->addresseeId);	
+	_SERIAL_PRINTLN(")");
 
 	_SERIAL_PRINT("addressee:  \t ");
-	_SERIAL_PRINTLN(toDef(msg->finalAddressId));
-
+	_SERIAL_PRINT(toDef(msg->finalAddressId));
+	_SERIAL_PRINT("\t (");	
+	_SERIAL_PRINT(msg->finalAddressId);	
+	_SERIAL_PRINTLN(")");
+	
 	_SERIAL_PRINT("msgTypeId:  \t ");
-	_SERIAL_PRINTLN(msgType[msg->messageTypeId]);
-
+	_SERIAL_PRINT(msgType[msg->messageTypeId]);
+	_SERIAL_PRINT("\t (");	
+	_SERIAL_PRINT(msg->messageTypeId);	
+	_SERIAL_PRINTLN(")");
+	
 	for (int i = 0; i < ((msg->totalContentItems + 1) * 3); i= i+3)
 	{
 		_SERIAL_PRINT("data:       ");
@@ -528,7 +543,6 @@ void setDataOnSPIFlag()
 #endif	
 {
 	dataOnSPI = true;
-	_SERIAL_PRINTLN("ping");
 }
 
 
@@ -864,6 +878,7 @@ aMessage sendMessageSPIFromMaster(int CSPin, aMessage SPIMessage)
 	if (getSPIBusStatus() == SPIinActive)
 	{
 		setSPIBusStatus (SPIActive);
+		displayMessage(&SPIMessage, true);
 		comSucces = SPIMasterPassDataFromMeToYou (CSPin, SPIMessage);
 		if (comSucces)
 		{
@@ -884,6 +899,7 @@ aMessage sendMessageSPIFromMaster(int CSPin, aMessage SPIMessage)
 						waitFor(5);
 					}
 					returnMessage = SPIMasterPassDataFromYouToMe (CSPin, allowedWaitingTime);
+					displayMessage(&returnMessage, false);
 					_SERIAL_PRINTLN(" Message reply to previous request received from slave: ");
 					if (returnMessage.messageTypeId != errorSerialCommunication)
 					{
@@ -892,33 +908,43 @@ aMessage sendMessageSPIFromMaster(int CSPin, aMessage SPIMessage)
 						rawContentLocal[1] = 0;
 						rawContentLocal[2] = 0;			
 						SPIMessage  = prepareSerialMessage (toDef(SPIMessage.senderId), toDef(SPIMessage.addresseeId), toDef(SPIMessage.finalAddressId), messageStatusReply,  1, &rawContentLocal[0]);
-						_SERIAL_PRINTLN("Message status reply to slave from Master");
+						displayMessage(&SPIMessage, true);
 						comSucces = SPIMasterPassDataFromMeToYou (CSPin, SPIMessage); 
 						if (!comSucces)
 						{
+							_SERIAL_PRINTLN("ERROR -- Send of reply of reply failed ");
 							returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 3);
+							displayMessage(&returnMessage, false);
 						}
 					}
 					else
 					{
+						_SERIAL_PRINTLN("ERROR -- No valid answer withing allowed time ");						
 						returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 4);
+						displayMessage(&returnMessage, false);
 					}
 				}
 			}
 			else
 			{
-				returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 5);
+					_SERIAL_PRINTLN("ERROR -- Reply Status expected ");
+					returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 5);
+					displayMessage(&returnMessage, false);
 			}
 			setSPIBusStatus (SPIinActive);
 		}
 		else
 		{
+			_SERIAL_PRINTLN("ERROR --- Send failed");			
 			returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 6);
+			displayMessage(&returnMessage, false);
 		}
 	}
 	else
 	{
+		_SERIAL_PRINTLN("ERROR --- SPIBus on slave = Active ");
 		returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 7);
+		displayMessage(&returnMessage, false);
 	}
 	
 	return returnMessage;
@@ -931,6 +957,7 @@ bool sendStatusMessageSPIFromSlave (int wakeUp, aMessage SPIStatusMessage)
 	if (getSPIBusStatus() == SPIinActive)
 	{
 		setSPIBusStatus (SPIActive);
+		displayMessage(&SPIStatusMessage, true);
 		comSucces = SPISlavePassDataFromMeToYou (wakeUp, SPIStatusMessage);
 	}
 	else
@@ -948,6 +975,7 @@ bool sendStatusMessageSPIFromMaster (int CSPin, aMessage SPIStatusMessage)
 	if (getSPIBusStatus() == SPIinActive)
 	{
 		setSPIBusStatus (SPIActive);
+		displayMessage(&SPIStatusMessage, true);
 		comSucces = SPIMasterPassDataFromMeToYou (CSPin, SPIStatusMessage);
 	}
 	else
@@ -967,6 +995,7 @@ aMessage sendMessageSPIFromSlave(int wakeUp, aMessage SPIMessage)
 	if (getSPIBusStatus() == SPIinActive)
 	{
 		setSPIBusStatus (SPIActive);
+		displayMessage(&SPIMessage, true);
 		comSucces = SPISlavePassDataFromMeToYou (wakeUp, SPIMessage);
 		if (comSucces)
 		{
@@ -991,7 +1020,7 @@ aMessage sendMessageSPIFromSlave(int wakeUp, aMessage SPIMessage)
 						rawContentLocal[1] = 0;
 						rawContentLocal[2] = 0;			
 						SPIMessage  = prepareSerialMessage (toDef(SPIMessage.senderId), toDef(SPIMessage.addresseeId), toDef(SPIMessage.finalAddressId), messageStatusReply,  1, &rawContentLocal[0]);
-						_SERIAL_PRINTLN("Message status reply to master from slave");
+						displayMessage(&SPIMessage, true);
 						comSucces = SPISlavePassDataFromMeToYou (wakeUp, SPIMessage); 
 						if (comSucces)
 						{
@@ -1001,12 +1030,14 @@ aMessage sendMessageSPIFromSlave(int wakeUp, aMessage SPIMessage)
 						{
 							_SERIAL_PRINTLN("ERROR -- Send of reply of reply failed ");
 							returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 3);
+							displayMessage(&returnMessage, false);
 						}
 					}
 					else
 					{
 						_SERIAL_PRINTLN("ERROR -- No valid answer withing allowed time ");
 						returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 4);
+						displayMessage(&returnMessage, false);
 					}
 				}
 			}
@@ -1014,6 +1045,7 @@ aMessage sendMessageSPIFromSlave(int wakeUp, aMessage SPIMessage)
 			{
 				_SERIAL_PRINTLN("ERROR -- Reply Status expected ");
 				returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 5);
+				displayMessage(&returnMessage, false);
 			}
 			setSPIBusStatus (SPIinActive);
 		}
@@ -1021,12 +1053,14 @@ aMessage sendMessageSPIFromSlave(int wakeUp, aMessage SPIMessage)
 		{
 			_SERIAL_PRINTLN("ERROR --- Send failed");
 			returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 6);
+			displayMessage(&returnMessage, false);
 		}
 	}
 	else
 	{
 		_SERIAL_PRINTLN("ERROR --- SPIBus on slave = Active ");
 		returnMessage = createGeneralMessage (messageStatusReply, errorSerialCommunication, 7);
+		displayMessage(&returnMessage, false);
 	}
 
 	return returnMessage;
@@ -1038,6 +1072,7 @@ aMessage receiveSPIMessageOnMaster(int CSPin)
 	aMessage SPIMessage;
 
 	returnMessage = SPIMasterPassDataFromYouToMe (CSPin, 1000);
+	displayMessage(&returnMessage, false);
 	if ((returnMessage.messageTypeId > 0) && (returnMessage.messageTypeId != messageStatusReply))
 	{
 		byte rawContentLocal[3];
@@ -1045,7 +1080,7 @@ aMessage receiveSPIMessageOnMaster(int CSPin)
 		rawContentLocal[1] = 0;
 		rawContentLocal[2] = responseTimes[returnMessage.messageTypeId];			
 		SPIMessage  = prepareSerialMessage (toDef(returnMessage.addresseeId), toDef(returnMessage.senderId), toDef(returnMessage.senderId), messageStatusReply,  1, &rawContentLocal[0]);
-		//displayMessage(&SPIMessage, true);
+		displayMessage(&SPIMessage, true);
 		SPIMasterPassDataFromMeToYou (CSPin, SPIMessage);
 	}
 	return returnMessage;
@@ -1374,6 +1409,7 @@ aMessage receiveWIFIUnsolicitedData(String *__msgP)
 		_WIFIMessage.messageTypeId  = noMessageActive;			
 	}
 
+	displayMessage(&_WIFIMessage, false);
 	return _WIFIMessage;  
 }
  
